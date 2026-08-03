@@ -1,0 +1,13 @@
+[package]
+name = "minimessage-macro"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+minimessage-impl = { path = "../minimessage-impl" }
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = { version = "3.0.3", features = ["full"] }
