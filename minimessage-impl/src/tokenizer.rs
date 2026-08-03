@@ -2,7 +2,7 @@ use std::{iter::Peekable, str::CharIndices};
 
 use crate::{error::Result, token::Token};
 
-const ILLEGAL_CHARS_STRING_CHARS: &[char] = &['<', '>', '{', '}', '\\', '/'];
+const ILLEGAL_TEXT_CHARS: &[char] = &['<', '>', '{', '}', '\\', '/'];
 
 pub struct Tokenizer<'a> {
     pub(crate) input: &'a str,
@@ -45,7 +45,7 @@ impl<'a> Tokenizer<'a> {
         let mut end_idx = start_idx + first_char.len_utf8();
 
         while let Some(&(idx, c)) = self.char_indices.peek() {
-            if ILLEGAL_CHARS_STRING_CHARS.contains(&c) {
+            if ILLEGAL_TEXT_CHARS.contains(&c) {
                 break;
             }
 
