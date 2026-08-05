@@ -22,10 +22,10 @@ macro_rules! expect_token {
     };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression<'a> {
     Unnamed,
-    Named(&'a str),
+    Named(Cow<'a, str>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,15 +100,23 @@ impl<'a> Parser<'a> {
                     match self.advance() {
                         Some(Token::CurlyOpen) => parts.push("{"),
                         Some(Token::CurlyClose) => parts.push("}"),
-                        Some(Token::Backslash) => parts.push("\\"),
+                        Some(Token::Backslash) => parts.push(r"\"),
                         Some(Token::AngleOpen) => parts.push("<"),
                         Some(Token::AngleClose) => parts.push(">"),
-                        Some(Token::Slash) => parts.push("/"),
-                        Some(Token::Colon) => parts.push(":"),
+                        Some(Token::Slash) => parts.push(r"/"),
+                        Some(Token::Colon) => parts.push(r":"),
                         Some(Token::Text(s)) => parts.push(s),
-                        Some(Token::Quote) => parts.push("\""),
+                        Some(Token::Quote) => parts.push(r"\"),
                         None => return Err(Error::UnexpectedEof),
                     }
+                }
+                Some(Token::Colon) => {
+                    self.advance();
+                    parts.push(":");
+                }
+                Some(Token::Slash) => {
+                    self.advance();
+                    parts.push("/");
                 }
                 _ => break,
             }
@@ -175,16 +183,8 @@ impl<'a> Parser<'a> {
                 if let Some(Token::Slash) = self.peek() {
                     self.advance();
 
-                    let tag = match self.advance() {
-                        Some(Token::Text(t)) => t,
-                        Some(t) => return Err(Error::InvalidToken(t.into())),
-                        None => return Err(Error::UnexpectedEof),
-                    };
-                    match self.advance() {
-                        Some(Token::AngleClose) => {}
-                        Some(t) => return Err(Error::InvalidToken(t.into())),
-                        None => return Err(Error::UnexpectedEof),
-                    }
+                    let tag = expect_token!(self.advance(), Token::Text(t) => t);
+                    expect_token!(self.advance(), Token::AngleClose);
                     if tag != closing_tag {
                         return Err(Error::MismatchedTag {
                             expected: closing_tag.to_string(),
@@ -212,16 +212,17 @@ impl<'a> Parser<'a> {
                 Ok(Node::Expression(Expression::Unnamed))
             }
             Some(_) => {
-                let name = match self.advance() {
-                    Some(Token::Text(t)) => t,
-                    Some(t) => return Err(Error::InvalidToken(t.into())),
-                    None => return Err(Error::UnexpectedEof),
+                let name = expect_token!(self.advance(), Token::Text(t) => t);
+
+                let name = if self.peek() == Some(&Token::Colon) {
+                    self.advance();
+                    let format_spec = expect_token!(self.advance(), Token::Text(t) => t);
+                    Cow::Owned(format!("{}:{}", name, format_spec))
+                } else {
+                    Cow::Borrowed(name)
                 };
-                match self.advance() {
-                    Some(Token::CurlyClose) => {}
-                    Some(t) => return Err(Error::InvalidToken(t.into())),
-                    None => return Err(Error::UnexpectedEof),
-                }
+
+                expect_token!(self.advance(), Token::CurlyClose);
                 Ok(Node::Expression(Expression::Named(name)))
             }
             None => Err(Error::UnexpectedEof),
@@ -296,7 +297,7 @@ mod tests {
     fn expression_only() {
         assert_eq!(
             nodes("{name}"),
-            vec![Node::Expression(Expression::Named("name"))],
+            vec![Node::Expression(Expression::Named(Cow::Borrowed("name")))],
         );
     }
 
@@ -320,7 +321,7 @@ mod tests {
                 tag: "blue",
                 tag_descriptors: vec![],
                 children: vec![
-                    Node::Expression(Expression::Named("name")),
+                    Node::Expression(Expression::Named(Cow::Borrowed("name"))),
                     Node::Text(Cow::Borrowed(", welcome to ")),
                     Node::Element {
                         tag: "orange",
@@ -388,10 +389,16 @@ mod tests {
     }
 
     #[test]
-    fn simple_element_with_descriptor_colon_fail() {
+    fn simple_element_with_descriptor_colon() {
         assert_eq!(
-            nodes_fallible(r#"<p:"string with : a colon">Hello</p>"#).unwrap_err(),
-            Error::InvalidToken(":".to_string()),
+            nodes(r#"<p:"string with : a colon">Hello</p>"#),
+            vec![Node::Element {
+                tag: "p",
+                tag_descriptors: vec![Descriptor::String(Cow::Owned(
+                    r#"string with : a colon"#.to_owned()
+                ))],
+                children: vec![Node::Text(Cow::Borrowed("Hello"))],
+            }],
         );
     }
 
@@ -407,6 +414,24 @@ mod tests {
                 children: vec![Node::Text(Cow::Borrowed("Hello"))],
             }],
         );
+    }
+
+    #[test]
+    fn complex_descriptor() {
+        assert_eq!(
+            nodes(r#"Funny link: <click:open_url:"https://pumpkinmc.org/"></click>"#),
+            vec![
+                Node::Text("Funny link: ".into()),
+                Node::Element {
+                    tag: "click",
+                    tag_descriptors: vec![
+                        Descriptor::Ident("open_url"),
+                        Descriptor::String("https://pumpkinmc.org/".into())
+                    ],
+                    children: vec![]
+                }
+            ]
+        )
     }
 
     #[test]
@@ -433,6 +458,7 @@ mod tests {
                         Node::Text("!".into())
                     ],
                 },
+                Node::Text(" ".into()),
                 Node::Element {
                     tag: "yellow",
                     tag_descriptors: vec![],
@@ -441,7 +467,9 @@ mod tests {
                         Node::Element {
                             tag: "bold",
                             tag_descriptors: vec![],
-                            children: vec![Node::Expression(Expression::Named("{number:.2}"))]
+                            children: vec![Node::Expression(Expression::Named(Cow::Owned(
+                                "number:.2".to_owned()
+                            )))]
                         }
                     ]
                 }
