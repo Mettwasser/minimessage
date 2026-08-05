@@ -1,13 +1,18 @@
+use std::str::FromStr;
+
+use heck::ToPascalCase;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
+use strum::{EnumDiscriminants, EnumString};
 use syn::{
     Expr, Ident, LitStr, Token,
     parse::{Parse, ParseStream},
+    punctuated::Punctuated,
 };
 
 use minimessage_impl::{
-    parser::{Expression, Node, Parser},
+    parser::{Descriptor, Expression, Node, Parser},
     tokenizer::Tokenizer,
 };
 
@@ -42,41 +47,188 @@ impl Parse for MacroInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let format_str = input.parse()?;
         let mut args = Vec::new();
+
         if input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
-            while !input.is_empty() {
-                args.push(input.parse()?);
-                if input.peek(Token![,]) {
-                    input.parse::<Token![,]>()?;
-                } else {
-                    break;
-                }
-            }
+            args = Punctuated::<FormatArg, Token![,]>::parse_terminated(input)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
         }
+
         Ok(MacroInput { format_str, args })
     }
 }
 
 fn tag_to_color(tag: &str) -> TokenStream2 {
-    match tag {
-        "black" => quote! { NamedColor::Black },
-        "dark_blue" => quote! { NamedColor::DarkBlue },
-        "dark_green" => quote! { NamedColor::DarkGreen },
-        "dark_aqua" => quote! { NamedColor::DarkAqua },
-        "dark_red" => quote! { NamedColor::DarkRed },
-        "dark_purple" => quote! { NamedColor::DarkPurple },
-        "gold" => quote! { NamedColor::Gold },
-        "gray" => quote! { NamedColor::Gray },
-        "dark_gray" => quote! { NamedColor::DarkGray },
-        "blue" => quote! { NamedColor::Blue },
-        "green" => quote! { NamedColor::Green },
-        "aqua" => quote! { NamedColor::Aqua },
-        "red" => quote! { NamedColor::Red },
-        "light_purple" => quote! { NamedColor::LightPurple },
-        "yellow" => quote! { NamedColor::Yellow },
-        "white" => quote! { NamedColor::White },
-        _ => panic!("unknown color tag: `{tag}`"),
+    let pascal_case_tag = tag.to_pascal_case();
+    quote! { NamedColor::#pascal_case_tag }
+}
+
+#[derive(Default, Clone, EnumDiscriminants, EnumString)]
+#[strum_discriminants(derive(EnumString))]
+#[strum_discriminants(strum(serialize_all = "snake_case"))]
+enum ClickEvent {
+    OpenUrl(String),
+    RunCommand(String),
+    SuggestCommand(String),
+    CopyToClipboard(String),
+
+    #[default]
+    __Empty,
+}
+
+#[derive(Default, Clone, EnumDiscriminants, EnumString)]
+#[strum_discriminants(derive(EnumString))]
+#[strum_discriminants(strum(serialize_all = "snake_case"))]
+enum HoverEvent {
+    ShowEntity {
+        entity_type: String,
+        id: String,
+        name: String,
+    },
+    ShowItem(String),
+    ShowText(String),
+
+    #[default]
+    __Empty,
+}
+
+#[derive(Clone, EnumDiscriminants)]
+#[strum_discriminants(derive(EnumString))]
+enum Special {
+    Click(ClickEvent),
+    Hover(HoverEvent),
+}
+
+/*
+ *
+hover_show_entity(entity_type, id, name)
+hover_show_item(item)
+hover_show_text(text)
+ */
+impl Special {
+    fn to_fn_call_code(self, var: Ident) -> TokenStream2 {
+        match self {
+            Self::Click(click) => match click {
+                ClickEvent::OpenUrl(url) => quote! { #var.click_open_url(#url) },
+                ClickEvent::RunCommand(command) => quote! { #var.click_run_command(#command) },
+                ClickEvent::SuggestCommand(command) => {
+                    quote! { #var.click_suggest_command(#command) }
+                }
+                ClickEvent::CopyToClipboard(text) => quote! { #var.click_copy_to_clipboard(#text) },
+                ClickEvent::__Empty => quote! { compile_error!("No") },
+            },
+            Self::Hover(hover) => match hover {
+                HoverEvent::ShowEntity {
+                    entity_type,
+                    id,
+                    name,
+                } => quote! { #var.hover_show_entity(#entity_type, #id, #name) },
+                HoverEvent::ShowItem(item) => quote! { #var.hover_show_item(#item) },
+                HoverEvent::ShowText(text) => quote! { {
+                    let temp_text = TextComponent::text(#text);
+                    #var.hover_show_text(temp_text);
+                } },
+                HoverEvent::__Empty => quote! { compile_error!("No") },
+            },
+        }
     }
+
+    fn from_descriptor(
+        tag: &str,
+        descriptors: Vec<Descriptor<'_>>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut iter = descriptors.into_iter();
+
+        let event = match iter.next() {
+            Some(Descriptor::Ident(s)) => s,
+            Some(_) => return Err("second descriptor must be an identifier".into()),
+            None => return Err("missing event type".into()),
+        };
+
+        let args = iter
+            .map(|d| match d {
+                Descriptor::String(s) => s.into_owned(),
+                Descriptor::Ident(s) => s.to_owned(),
+            })
+            .collect::<Vec<_>>();
+
+        match tag {
+            "click" => Ok(Special::Click(ClickEvent::try_from_descriptors(
+                event, args,
+            )?)),
+            "hover" => Ok(Special::Hover(HoverEvent::try_from_descriptors(
+                event, args,
+            )?)),
+            _ => Err(format!("unknown special `{tag}`").into()),
+        }
+    }
+}
+
+impl ClickEvent {
+    fn try_from_descriptors(
+        ident: &str,
+        mut args: Vec<String>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let value = args.pop().ok_or("click event requires one argument")?;
+
+        match ClickEventDiscriminants::from_str(ident)? {
+            ClickEventDiscriminants::OpenUrl => Ok(Self::OpenUrl(value)),
+            ClickEventDiscriminants::RunCommand => Ok(Self::RunCommand(value)),
+            ClickEventDiscriminants::SuggestCommand => Ok(Self::SuggestCommand(value)),
+            ClickEventDiscriminants::CopyToClipboard => Ok(Self::CopyToClipboard(value)),
+            ClickEventDiscriminants::__Empty => Err("invalid click event".into()),
+        }
+    }
+}
+
+impl HoverEvent {
+    fn try_from_descriptors(
+        ident: &str,
+        args: Vec<String>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        match HoverEventDiscriminants::from_str(ident)? {
+            HoverEventDiscriminants::ShowText => Ok(Self::ShowText(
+                args.into_iter().next().ok_or("missing text")?,
+            )),
+            HoverEventDiscriminants::ShowItem => Ok(Self::ShowItem(
+                args.into_iter().next().ok_or("missing item")?,
+            )),
+            HoverEventDiscriminants::ShowEntity => {
+                let mut args = args.into_iter();
+
+                Ok(Self::ShowEntity {
+                    entity_type: args.next().ok_or("missing entity type")?,
+                    id: args.next().ok_or("missing id")?,
+                    name: args.next().ok_or("missing name")?,
+                })
+            }
+            HoverEventDiscriminants::__Empty => Err("invalid hover event".into()),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum Decoration {
+    Bold,
+}
+
+impl Decoration {
+    fn to_fn_call_code(self, var: &Ident) -> TokenStream2 {
+        let function_to_append = match self {
+            Decoration::Bold => quote! { bold(true) },
+        };
+
+        quote! { #var.#function_to_append; }
+    }
+}
+
+fn tag_to_decoration(tag: &str) -> Option<Decoration> {
+    Some(match tag {
+        "bold" => Decoration::Bold,
+        _ => return None,
+    })
 }
 
 fn resolve_named(
@@ -85,6 +237,10 @@ fn resolve_named(
     positional_idx: &mut usize,
 ) -> (TokenStream2, LitStr) {
     let (value_part, format_spec) = name.split_once(':').map_or((name, ""), |(v, s)| (v, s));
+
+    if name.contains(':') && format_spec.is_empty() {
+        panic!("empty format specifier after ':' in expression {{{name}}}");
+    }
 
     let fmt_lit = if format_spec.is_empty() {
         LitStr::new("{}", Span::call_site())
@@ -171,16 +327,38 @@ fn generate_nodes(
                     #parent.add_child(#var);
                 });
             }
-            Node::Element { tag, children } => {
-                let color = tag_to_color(tag);
+            Node::Element {
+                tag,
+                children,
+                tag_descriptors,
+            } => {
                 let var = format_ident!("__c{}", {
                     *var_counter += 1;
                     *var_counter - 1
                 });
+
                 let child_code = generate_nodes(children, args, positional_idx, var_counter, &var);
+
+                let code_to_insert = if let Some(decoration) = tag_to_decoration(tag) {
+                    let special_code = decoration.to_fn_call_code(&var);
+                    quote! {
+                        #special_code
+                    }
+                } else if let Ok(special) = Special::from_descriptor(tag, tag_descriptors.clone()) {
+                    let special = special.to_fn_call_code(var.clone());
+                    quote! {
+                        #special
+                    }
+                } else {
+                    let color = tag_to_color(tag);
+                    quote! {
+                        #var.color_named(#color);
+                    }
+                };
+
                 code.extend(quote! {
                     let #var = TextComponent::text("");
-                    #var.color_named(#color);
+                    #code_to_insert
                     #child_code
                     #parent.add_child(#var);
                 });

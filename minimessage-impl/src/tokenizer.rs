@@ -2,8 +2,6 @@ use std::{iter::Peekable, str::CharIndices};
 
 use crate::{error::Result, token::Token};
 
-const ILLEGAL_TEXT_CHARS: &[char] = &['<', '>', '{', '}', '\\', '/'];
-
 pub struct Tokenizer<'a> {
     pub(crate) input: &'a str,
     char_indices: Peekable<CharIndices<'a>>,
@@ -32,6 +30,8 @@ impl<'a> Iterator for Tokenizer<'a> {
             '}' => Ok(Token::CurlyClose),
             '\\' => Ok(Token::Backslash),
             '/' => Ok(Token::Slash),
+            ':' => Ok(Token::Colon),
+            '"' => Ok(Token::Quote),
 
             _ => Ok(Token::Text(self.read_string(token_start_idx, char)?)),
         };
@@ -45,7 +45,7 @@ impl<'a> Tokenizer<'a> {
         let mut end_idx = start_idx + first_char.len_utf8();
 
         while let Some(&(idx, c)) = self.char_indices.peek() {
-            if ILLEGAL_TEXT_CHARS.contains(&c) {
+            if Token::ILLEGAL_TEXT_CHARS.contains(&c) {
                 break;
             }
 
@@ -219,6 +219,40 @@ mod tests {
                 Token::Text("b"),
                 Token::Slash,
                 Token::Text("c"),
+            ],
+        );
+    }
+
+    #[test]
+    fn tag_descriptor() {
+        assert_eq!(
+            tokenize(r#"<b:"some text">"#),
+            vec![
+                Token::AngleOpen,
+                Token::Text("b"),
+                Token::Colon,
+                Token::Quote,
+                Token::Text("some text"),
+                Token::Quote,
+                Token::AngleClose,
+            ],
+        );
+    }
+
+    #[test]
+    fn tag_descriptor_with_inner_colon() {
+        assert_eq!(
+            tokenize(r#"<b:"some :text">"#),
+            vec![
+                Token::AngleOpen,
+                Token::Text("b"),
+                Token::Colon,
+                Token::Quote,
+                Token::Text("some "),
+                Token::Colon,
+                Token::Text("text"),
+                Token::Quote,
+                Token::AngleClose,
             ],
         );
     }

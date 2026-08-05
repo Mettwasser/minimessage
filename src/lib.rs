@@ -1,7 +1,7 @@
 pub use minimessage_impl::{
     error::{Error, Result},
     parser::{Expression, Node, Parser},
-    token::{Token, TokenOwned},
+    token::Token,
     tokenizer::Tokenizer,
 };
 
