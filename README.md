@@ -45,6 +45,7 @@ You can also embed files. This will insert the file contents at compile time and
 ```xml
 <blue>Hello there, <red><bold>{}</bold></red>!</blue> <yellow>Here's your shiny bold number: <bold>{number:.2}</bold></yellow>
 <click:open_url:"https://pumpkinmc.org/">Visit <red>pumpkin</red>!</click>
+<hover:show_text:"<blue>Hello world">Hover me!
 ```
 
 Command Handler:
@@ -66,6 +67,8 @@ impl CommandHandler for TestCommandHandler {
     }
 }
 ```
+
+![](readme_data/image2.png)
 
 ## Dynamic Rendering
 

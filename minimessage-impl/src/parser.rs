@@ -99,6 +99,16 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(Token::DoubleQuote) if break_quote == Some('"') => break,
                 Some(Token::Quote) if break_quote == Some('\'') => break,
+
+                Some(tok @ (Token::AngleOpen | Token::AngleClose)) if break_quote.is_some() => {
+                    let s = match tok {
+                        Token::AngleOpen => "<",
+                        Token::AngleClose => ">",
+                        _ => unreachable!(),
+                    };
+                    self.advance();
+                    parts.push(s);
+                },
                 Some(
                     tok @ (Token::DoubleQuote
                     | Token::Quote

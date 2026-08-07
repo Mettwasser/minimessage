@@ -1,10 +1,13 @@
 use std::{borrow::Cow, collections::HashMap, num::ParseIntError, str::FromStr};
 
+use minimessage_impl::{parser::Parser, tokenizer::Tokenizer};
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
+use quote::{format_ident, quote};
 use serde::Serialize;
 use strum::{EnumDiscriminants, EnumString};
 use syn::Ident;
+
+use crate::generate_nodes;
 
 #[derive(Default, Clone, EnumDiscriminants, EnumString)]
 #[strum_discriminants(derive(EnumString))]
@@ -149,10 +152,22 @@ impl Special {
                     quote! { #var.hover_show_entity(#entity_type, #id, #name); }
                 },
                 HoverEvent::ShowItem(item) => quote! { #var.hover_show_item(#item); },
-                HoverEvent::ShowText(text) => quote! { {
-                    let temp_text = TextComponent::text(#text);
-                    #var.hover_show_text(temp_text);
-                } },
+                HoverEvent::ShowText(text) => {
+                    let nodes = Parser::new(Tokenizer::new(&text))
+                        .collect::<Result<Vec<_>, _>>()
+                        .unwrap();
+                    let root = format_ident!("__hover_text");
+                    let mut var_counter = 0;
+                    let mut positional_idx = 0;
+                    let child_code =
+                        generate_nodes(&nodes, &[], &mut positional_idx, &mut var_counter, &root);
+
+                    quote! { {
+                        let #root = TextComponent::text("");
+                        #child_code
+                        #var.hover_show_text(#root);
+                    } }
+                },
                 HoverEvent::__Empty => quote! { compile_error!("No"); },
             },
         }
