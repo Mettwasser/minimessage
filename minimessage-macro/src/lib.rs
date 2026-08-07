@@ -1,5 +1,7 @@
 mod special;
 
+use std::{env, fs};
+
 use heck::ToPascalCase;
 use minimessage_impl::{
     parser::{Expression, Node, Parser},
@@ -18,6 +20,10 @@ use syn::{
 };
 
 use crate::special::Special;
+
+mod keywords {
+    syn::custom_keyword!(file);
+}
 
 struct FormatArg {
     ident: Option<Ident>,
@@ -42,12 +48,21 @@ impl Parse for FormatArg {
 }
 
 struct MacroInput {
+    is_file: bool,
     format_str: LitStr,
     args: Vec<FormatArg>,
 }
 
 impl Parse for MacroInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let is_file = if input.peek(keywords::file) {
+            input.parse::<keywords::file>()?;
+            input.parse::<Token![:]>()?;
+            true
+        } else {
+            false
+        };
+
         let format_str = input.parse()?;
         let mut args = Vec::new();
 
@@ -59,7 +74,11 @@ impl Parse for MacroInput {
                 .collect();
         }
 
-        Ok(MacroInput { format_str, args })
+        Ok(MacroInput {
+            format_str,
+            args,
+            is_file,
+        })
     }
 }
 
@@ -231,7 +250,13 @@ fn generate_nodes(
 #[proc_macro]
 pub fn minimessage(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as MacroInput);
-    let value = input.format_str.value();
+    let mut value = input.format_str.value().to_string();
+
+    if input.is_file {
+        let path = std::path::Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join(value);
+        value = fs::read_to_string(&path)
+            .expect(&format!("File not found: {}", path.to_str().unwrap()));
+    }
 
     let nodes = Parser::new(Tokenizer::new(&value))
         .collect::<Result<Vec<_>, _>>()

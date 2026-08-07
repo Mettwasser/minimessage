@@ -15,10 +15,10 @@ struct TestCommandHandler;
 impl CommandHandler for TestCommandHandler {
     fn handle(
         &self,
-        sender: pumpkin_plugin_api::command::CommandSender,
-        _server: pumpkin_plugin_api::Server,
-        _args: pumpkin_plugin_api::command::ConsumedArgs,
-    ) -> pumpkin_plugin_api::Result<i32, pumpkin_plugin_api::command::CommandError> {
+        sender: CommandSender,
+        _server: Server,
+        _args: ConsumedArgs,
+    ) -> pumpkin_plugin_api::Result<i32, CommandError> {
         let number = random::<f32>();
 
         sender.send_message(minimessage!(
@@ -35,6 +35,28 @@ impl CommandHandler for TestCommandHandler {
 ```
 
 ![](readme_data/image.png)
+
+## File embedding
+
+You can also embed files. This will insert the file contents at compile time and you get the same, compile time checked benefits!
+
+```rs
+struct TestCommandHandler;
+
+impl CommandHandler for TestCommandHandler {
+    fn handle(
+        &self,
+        sender: CommandSender,
+        _server: Server,
+        _args: ConsumedArgs,
+    ) -> pumpkin_plugin_api::Result<i32, CommandError> {
+        let number = 7;
+        sender.send_message(minimessage!(file:"minimessage_demo.xml", sender.get_name()));
+
+        Ok(0)
+    }
+}
+```
 
 ## Dynamic Rencering
 
