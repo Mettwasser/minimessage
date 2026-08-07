@@ -58,7 +58,7 @@ impl CommandHandler for TestCommandHandler {
 }
 ```
 
-## Dynamic Rencering
+## Dynamic Rendering
 
 Currently this isn't supported out of the box.
 However, this library additionally provides a tokenizer and parser so you can DIY.
