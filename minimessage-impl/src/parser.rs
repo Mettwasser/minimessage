@@ -49,7 +49,10 @@ impl<'a> Iterator for Parser<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let token = self.peek()?;
         match token {
-            Token::Text(_) | Token::Backslash => Some(self.parse_text().map(Node::Text)),
+            Token::Text(_) | Token::Backslash | Token::Colon | Token::Slash
+                | Token::DoubleQuote | Token::Quote => {
+                Some(self.parse_text().map(Node::Text))
+            }
             Token::AngleOpen => Some(self.parse_element()),
             Token::CurlyOpen => Some(self.parse_expression()),
             _ => None,
@@ -79,11 +82,28 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_text(&mut self) -> Result<Cow<'a, str>> {
+        self.parse_text_internal(None)
+    }
+
+    fn parse_descriptor_text(&mut self, matching_quote: char) -> Result<Cow<'a, str>> {
+        self.parse_text_internal(Some(matching_quote))
+    }
+
+    fn parse_text_internal(&mut self, break_quote: Option<char>) -> Result<Cow<'a, str>> {
         let mut parts = Vec::new();
 
         loop {
             match self.peek() {
-                // double-match avoids shared ref issues with peek + advance
+                Some(Token::DoubleQuote) if break_quote == Some('"') => break,
+                Some(Token::Quote) if break_quote == Some('\'') => break,
+                Some(Token::DoubleQuote) => {
+                    self.advance();
+                    parts.push("\"");
+                }
+                Some(Token::Quote) => {
+                    self.advance();
+                    parts.push("'");
+                }
                 Some(Token::Text(_)) => {
                     if let Token::Text(s) = self.advance().unwrap() {
                         parts.push(s);
@@ -99,8 +119,18 @@ impl<'a> Parser<'a> {
                         Some(Token::AngleClose) => parts.push(">"),
                         Some(Token::Slash) => parts.push(r"/"),
                         Some(Token::Colon) => parts.push(r":"),
-                        Some(Token::Text(s)) => parts.push(s),
-                        Some(Token::DoubleQuote | Token::Quote) => parts.push("\""),
+                        Some(Token::Text(s)) => {
+                            if let Some(rest) = s.strip_prefix('n') {
+                                parts.push("\n");
+                                if !rest.is_empty() {
+                                    parts.push(rest);
+                                }
+                            } else {
+                                parts.push(s);
+                            }
+                        }
+                        Some(Token::DoubleQuote) => parts.push("\""),
+                        Some(Token::Quote) => parts.push("\'"),
                         None => return Err(Error::UnexpectedEof),
                     }
                 }
@@ -138,12 +168,20 @@ impl<'a> Parser<'a> {
         self.parse_element_body()
     }
 
+    fn is_void_element(tag: &str) -> bool {
+        matches!(tag, "newline" | "br")
+    }
+
     fn parse_element_body(&mut self) -> Result<Node<'a>> {
         let tag = expect_token!(self.advance(), Token::Text(t) => t);
 
         let descriptors = self.parse_descriptors()?;
 
         expect_token!(self.advance(), Token::AngleClose);
+
+        if Self::is_void_element(tag) {
+            return Ok(Node::Text(Cow::Borrowed("\n")));
+        }
 
         let children = self.parse_children_until(tag)?;
 
@@ -160,14 +198,20 @@ impl<'a> Parser<'a> {
         while self.peek() == Some(&Token::Colon) {
             self.advance(); // consume `:`
 
-            let descriptor = expect_token! {
-                self.advance(),
-                Token::Text(t) => Cow::Borrowed(t),
-                Token::DoubleQuote | Token::Quote=> {
-                    let inner_text = self.parse_text()?;
-                    expect_token!(self.advance(), Token::DoubleQuote | Token::Quote);
+            let descriptor = match self.advance() {
+                Some(Token::Text(t)) => Cow::Borrowed(t),
+                Some(Token::DoubleQuote) => {
+                    let inner_text = self.parse_descriptor_text('"')?;
+                    expect_token!(self.advance(), Token::DoubleQuote);
                     inner_text
                 }
+                Some(Token::Quote) => {
+                    let inner_text = self.parse_descriptor_text('\'')?;
+                    expect_token!(self.advance(), Token::Quote);
+                    inner_text
+                }
+                Some(tok) => return Err(Error::InvalidToken(tok.into())),
+                None => return Err(Error::UnexpectedEof),
             };
 
             descriptors.push(descriptor);
@@ -443,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn complex_descriptor() {
+    fn complex_descriptor_double_quote() {
         assert_eq!(
             nodes(r#"Funny link: <click:open_url:"https://pumpkinmc.org/"></click>"#),
             vec![
@@ -458,6 +502,56 @@ mod tests {
                 }
             ]
         )
+    }
+
+    #[test]
+    fn complex_descriptor_quote() {
+        assert_eq!(
+            nodes(r#"Funny link: <click:open_url:'https://pumpkinmc.org/'></click>"#),
+            vec![
+                Node::Text("Funny link: ".into()),
+                Node::Element {
+                    tag: "click",
+                    tag_descriptors: vec![
+                        Cow::Borrowed("open_url"),
+                        Cow::Borrowed("https://pumpkinmc.org/")
+                    ],
+                    children: vec![]
+                }
+            ]
+        )
+    }
+
+    #[test]
+    fn descriptor_nested_quote_double_outer() {
+        assert_eq!(
+            nodes(r#"<p:"hello 'world'">Test</p>"#),
+            vec![Node::Element {
+                tag: "p",
+                tag_descriptors: vec![Cow::Borrowed("hello 'world'")],
+                children: vec![Node::Text(Cow::Borrowed("Test"))],
+            }],
+        );
+    }
+
+    #[test]
+    fn descriptor_nested_quote_single_outer() {
+        assert_eq!(
+            nodes(r#"<p:'hello "world"'>Test</p>"#),
+            vec![Node::Element {
+                tag: "p",
+                tag_descriptors: vec![Cow::Borrowed(r#"hello "world""#)],
+                children: vec![Node::Text(Cow::Borrowed("Test"))],
+            }],
+        );
+    }
+
+    #[test]
+    fn quotes_in_regular_text() {
+        assert_eq!(
+            nodes("It's a \"nice\" day"),
+            vec![Node::Text(Cow::Owned("It's a \"nice\" day".to_owned()))]
+        );
     }
 
     #[test]
@@ -500,6 +594,89 @@ mod tests {
                     ]
                 }
             ]
+        );
+    }
+
+    #[test]
+    fn newline_tag() {
+        assert_eq!(nodes("<newline>"), vec![Node::Text(Cow::Borrowed("\n"))]);
+    }
+
+    #[test]
+    fn br_tag() {
+        assert_eq!(nodes("<br>"), vec![Node::Text(Cow::Borrowed("\n"))]);
+    }
+
+    #[test]
+    fn linebreak_tag() {
+        assert_eq!(nodes("<newline>"), vec![Node::Text(Cow::Borrowed("\n"))]);
+    }
+
+    #[test]
+    fn newline_between_text() {
+        assert_eq!(
+            nodes("Hello<newline>World"),
+            vec![
+                Node::Text(Cow::Borrowed("Hello")),
+                Node::Text(Cow::Borrowed("\n")),
+                Node::Text(Cow::Borrowed("World")),
+            ]
+        );
+    }
+
+    #[test]
+    fn escaped_newline() {
+        assert_eq!(
+            nodes(r"Hello\nWorld"),
+            vec![Node::Text(Cow::Owned("Hello\nWorld".to_owned()))]
+        );
+    }
+
+    #[test]
+    fn escaped_newline_at_start() {
+        assert_eq!(
+            nodes(r"\nHello"),
+            vec![Node::Text(Cow::Owned("\nHello".to_owned()))]
+        );
+    }
+
+    #[test]
+    fn escaped_newline_with_trailing() {
+        assert_eq!(
+            nodes(r"Hello\nWorld\nFoo"),
+            vec![Node::Text(Cow::Owned("Hello\nWorld\nFoo".to_owned()))]
+        );
+    }
+
+    #[test]
+    fn multiple_newlines() {
+        assert_eq!(
+            nodes("A<br>B<br>C<newline>D"),
+            vec![
+                Node::Text(Cow::Borrowed("A")),
+                Node::Text(Cow::Borrowed("\n")),
+                Node::Text(Cow::Borrowed("B")),
+                Node::Text(Cow::Borrowed("\n")),
+                Node::Text(Cow::Borrowed("C")),
+                Node::Text(Cow::Borrowed("\n")),
+                Node::Text(Cow::Borrowed("D")),
+            ]
+        );
+    }
+
+    #[test]
+    fn newline_in_element() {
+        assert_eq!(
+            nodes("<red>Hello<br>World</red>"),
+            vec![Node::Element {
+                tag: "red",
+                tag_descriptors: vec![],
+                children: vec![
+                    Node::Text(Cow::Borrowed("Hello")),
+                    Node::Text(Cow::Borrowed("\n")),
+                    Node::Text(Cow::Borrowed("World")),
+                ],
+            }]
         );
     }
 }
