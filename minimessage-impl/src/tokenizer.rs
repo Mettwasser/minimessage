@@ -31,7 +31,8 @@ impl<'a> Iterator for Tokenizer<'a> {
             '\\' => Ok(Token::Backslash),
             '/' => Ok(Token::Slash),
             ':' => Ok(Token::Colon),
-            '"' => Ok(Token::Quote),
+            '"' => Ok(Token::DoubleQuote),
+            '\'' => Ok(Token::Quote),
 
             _ => Ok(Token::Text(self.read_string(token_start_idx, char)?)),
         };
@@ -231,9 +232,9 @@ mod tests {
                 Token::AngleOpen,
                 Token::Text("b"),
                 Token::Colon,
-                Token::Quote,
+                Token::DoubleQuote,
                 Token::Text("some text"),
-                Token::Quote,
+                Token::DoubleQuote,
                 Token::AngleClose,
             ],
         );
@@ -247,11 +248,11 @@ mod tests {
                 Token::AngleOpen,
                 Token::Text("b"),
                 Token::Colon,
-                Token::Quote,
+                Token::DoubleQuote,
                 Token::Text("some "),
                 Token::Colon,
                 Token::Text("text"),
-                Token::Quote,
+                Token::DoubleQuote,
                 Token::AngleClose,
             ],
         );

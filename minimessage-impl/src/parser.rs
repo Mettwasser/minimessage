@@ -29,16 +29,10 @@ pub enum Expression<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Descriptor<'a> {
-    String(Cow<'a, str>),
-    Ident(&'a str),
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum Node<'a> {
     Element {
         tag: &'a str,
-        tag_descriptors: Vec<Descriptor<'a>>,
+        tag_descriptors: Vec<Cow<'a, str>>,
         children: Vec<Node<'a>>,
     },
     Text(Cow<'a, str>),
@@ -106,7 +100,7 @@ impl<'a> Parser<'a> {
                         Some(Token::Slash) => parts.push(r"/"),
                         Some(Token::Colon) => parts.push(r":"),
                         Some(Token::Text(s)) => parts.push(s),
-                        Some(Token::Quote) => parts.push(r"\"),
+                        Some(Token::DoubleQuote | Token::Quote) => parts.push("\""),
                         None => return Err(Error::UnexpectedEof),
                     }
                 }
@@ -117,6 +111,14 @@ impl<'a> Parser<'a> {
                 Some(Token::Slash) => {
                     self.advance();
                     parts.push("/");
+                }
+                Some(Token::CurlyOpen) => {
+                    self.advance();
+                    parts.push("{");
+                }
+                Some(Token::CurlyClose) => {
+                    self.advance();
+                    parts.push("}");
                 }
                 _ => break,
             }
@@ -152,7 +154,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_descriptors(&mut self) -> Result<Vec<Descriptor<'a>>> {
+    fn parse_descriptors(&mut self) -> Result<Vec<Cow<'a, str>>> {
         let mut descriptors = Vec::new();
 
         while self.peek() == Some(&Token::Colon) {
@@ -160,11 +162,11 @@ impl<'a> Parser<'a> {
 
             let descriptor = expect_token! {
                 self.advance(),
-                Token::Text(t) => Descriptor::Ident(t),
-                Token::Quote => {
+                Token::Text(t) => Cow::Borrowed(t),
+                Token::DoubleQuote | Token::Quote=> {
                     let inner_text = self.parse_text()?;
-                    expect_token!(self.advance(), Token::Quote);
-                    Descriptor::String(inner_text)
+                    expect_token!(self.advance(), Token::DoubleQuote | Token::Quote);
+                    inner_text
                 }
             };
 
@@ -184,7 +186,9 @@ impl<'a> Parser<'a> {
                     self.advance();
 
                     let tag = expect_token!(self.advance(), Token::Text(t) => t);
+
                     expect_token!(self.advance(), Token::AngleClose);
+
                     if tag != closing_tag {
                         return Err(Error::MismatchedTag {
                             expected: closing_tag.to_string(),
@@ -198,7 +202,7 @@ impl<'a> Parser<'a> {
             } else {
                 match self.next() {
                     Some(child) => children.push(child?),
-                    None => return Err(Error::UnexpectedEof),
+                    None => return Ok(children),
                 }
             }
         }
@@ -258,6 +262,32 @@ mod tests {
                 tag: "p",
                 tag_descriptors: vec![],
                 children: vec![Node::Text(Cow::Borrowed("Hello"))],
+            }],
+        );
+    }
+
+    #[test]
+    fn element_simplified_style() {
+        assert_eq!(
+            nodes("<blue>Hello <yellow>I'm yellow and <red>red"),
+            vec![Node::Element {
+                tag: "blue",
+                tag_descriptors: vec![],
+                children: vec![
+                    Node::Text(Cow::Borrowed("Hello "),),
+                    Node::Element {
+                        tag: "yellow",
+                        tag_descriptors: vec![],
+                        children: vec![
+                            Node::Text(Cow::Borrowed("I'm yellow and ")),
+                            Node::Element {
+                                tag: "red",
+                                tag_descriptors: Vec::new(),
+                                children: vec![Node::Text(Cow::Borrowed("red"))]
+                            }
+                        ]
+                    }
+                ],
             }],
         );
     }
@@ -351,7 +381,7 @@ mod tests {
             nodes("<p:testingiscool>Hello</p>"),
             vec![Node::Element {
                 tag: "p",
-                tag_descriptors: vec![Descriptor::Ident("testingiscool")],
+                tag_descriptors: vec![Cow::Borrowed("testingiscool")],
                 children: vec![Node::Text(Cow::Borrowed("Hello"))],
             }],
         );
@@ -363,7 +393,7 @@ mod tests {
             nodes("<p:1>Hello</p>"),
             vec![Node::Element {
                 tag: "p",
-                tag_descriptors: vec![Descriptor::Ident("1")],
+                tag_descriptors: vec![Cow::Borrowed("1")],
                 children: vec![Node::Text(Cow::Borrowed("Hello"))],
             }],
         );
@@ -378,10 +408,10 @@ mod tests {
             vec![Node::Element {
                 tag: "p",
                 tag_descriptors: vec![
-                    Descriptor::Ident("testingiscool"),
-                    Descriptor::String("now with a string".into()),
-                    Descriptor::Ident("an_ident"),
-                    Descriptor::String("and another string".into())
+                    Cow::Borrowed("testingiscool"),
+                    Cow::Borrowed("now with a string".into()),
+                    Cow::Borrowed("an_ident"),
+                    Cow::Borrowed("and another string".into())
                 ],
                 children: vec![Node::Text(Cow::Borrowed("Hello"))],
             }],
@@ -394,9 +424,7 @@ mod tests {
             nodes(r#"<p:"string with : a colon">Hello</p>"#),
             vec![Node::Element {
                 tag: "p",
-                tag_descriptors: vec![Descriptor::String(Cow::Owned(
-                    r#"string with : a colon"#.to_owned()
-                ))],
+                tag_descriptors: vec![Cow::Owned(r#"string with : a colon"#.to_owned())],
                 children: vec![Node::Text(Cow::Borrowed("Hello"))],
             }],
         );
@@ -408,9 +436,7 @@ mod tests {
             nodes(r#"<p:"string with \: a colon">Hello</p>"#),
             vec![Node::Element {
                 tag: "p",
-                tag_descriptors: vec![Descriptor::String(Cow::Owned(
-                    r#"string with : a colon"#.to_owned()
-                ))],
+                tag_descriptors: vec![Cow::Owned(r#"string with : a colon"#.to_owned())],
                 children: vec![Node::Text(Cow::Borrowed("Hello"))],
             }],
         );
@@ -425,8 +451,8 @@ mod tests {
                 Node::Element {
                     tag: "click",
                     tag_descriptors: vec![
-                        Descriptor::Ident("open_url"),
-                        Descriptor::String("https://pumpkinmc.org/".into())
+                        Cow::Borrowed("open_url"),
+                        Cow::Borrowed("https://pumpkinmc.org/")
                     ],
                     children: vec![]
                 }

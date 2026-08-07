@@ -10,6 +10,7 @@ pub enum Token<'a> {
     Backslash,
     Slash,
     Colon,
+    DoubleQuote,
     Quote,
     Text(&'a str),
 }
@@ -43,7 +44,8 @@ impl TokenDiscriminants {
             Self::Backslash => '\\',
             Self::Slash => '/',
             Self::Colon => ':',
-            Self::Quote => '"',
+            Self::DoubleQuote => '"',
+            Self::Quote => '\'',
             Self::Text => return None,
         };
 

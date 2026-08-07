@@ -1,10 +1,9 @@
-use std::str::FromStr;
+mod special;
 
 use heck::ToPascalCase;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
-use strum::{EnumDiscriminants, EnumString};
 use syn::{
     Expr, Ident, LitStr, Token,
     parse::{Parse, ParseStream},
@@ -12,9 +11,11 @@ use syn::{
 };
 
 use minimessage_impl::{
-    parser::{Descriptor, Expression, Node, Parser},
+    parser::{Expression, Node, Parser},
     tokenizer::Tokenizer,
 };
+
+use crate::special::Special;
 
 struct FormatArg {
     ident: Option<Ident>,
@@ -64,156 +65,6 @@ fn tag_to_color(tag: &str) -> TokenStream2 {
     let pascal_case_tag = tag.to_pascal_case();
     let ident = format_ident!("{pascal_case_tag}");
     quote! { NamedColor::#ident }
-}
-
-#[derive(Default, Clone, EnumDiscriminants, EnumString)]
-#[strum_discriminants(derive(EnumString))]
-#[strum_discriminants(strum(serialize_all = "snake_case"))]
-enum ClickEvent {
-    OpenUrl(String),
-    RunCommand(String),
-    SuggestCommand(String),
-    CopyToClipboard(String),
-
-    #[default]
-    __Empty,
-}
-
-#[derive(Default, Clone, EnumDiscriminants, EnumString)]
-#[strum_discriminants(derive(EnumString))]
-#[strum_discriminants(strum(serialize_all = "snake_case"))]
-enum HoverEvent {
-    ShowEntity {
-        entity_type: String,
-        id: String,
-        name: Option<String>,
-    },
-    ShowItem(String),
-    ShowText(String),
-
-    #[default]
-    __Empty,
-}
-
-#[derive(Clone, EnumDiscriminants)]
-#[strum_discriminants(derive(EnumString))]
-enum Special {
-    Click(ClickEvent),
-    Hover(HoverEvent),
-}
-
-impl Special {
-    fn to_fn_call_code(self, var: Ident) -> TokenStream2 {
-        match self {
-            Self::Click(click) => match click {
-                ClickEvent::OpenUrl(url) => quote! { #var.click_open_url(#url); },
-                ClickEvent::RunCommand(command) => quote! { #var.click_run_command(#command); },
-                ClickEvent::SuggestCommand(command) => {
-                    quote! { #var.click_suggest_command(#command); }
-                }
-                ClickEvent::CopyToClipboard(text) => {
-                    quote! { #var.click_copy_to_clipboard(#text); }
-                }
-                ClickEvent::__Empty => quote! { compile_error!("No"); },
-            },
-            Self::Hover(hover) => match hover {
-                HoverEvent::ShowEntity {
-                    entity_type,
-                    id,
-                    name,
-                } => {
-                    let name = name
-                        .map(|name| quote!(Some(#name)))
-                        .unwrap_or_else(|| quote!(None));
-
-                    quote! { #var.hover_show_entity(#entity_type, #id, #name); }
-                }
-                HoverEvent::ShowItem(item) => quote! { #var.hover_show_item(#item); },
-                HoverEvent::ShowText(text) => quote! { {
-                    let temp_text = TextComponent::text(#text);
-                    #var.hover_show_text(temp_text);
-                } },
-                HoverEvent::__Empty => quote! { compile_error!("No"); },
-            },
-        }
-    }
-
-    fn from_descriptor(
-        tag: &str,
-        descriptors: Vec<Descriptor<'_>>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut iter = descriptors.into_iter();
-
-        let event = match iter.next() {
-            Some(Descriptor::Ident(s)) => s,
-            Some(_) => return Err("second descriptor must be an identifier".into()),
-            None => return Err("missing event type".into()),
-        };
-
-        let args = iter
-            .map(|d| match d {
-                Descriptor::String(s) => s.into_owned(),
-                Descriptor::Ident(s) => s.to_owned(),
-            })
-            .collect::<Vec<_>>();
-
-        match tag {
-            "click" => Ok(Special::Click(ClickEvent::try_from_descriptors(
-                event, args,
-            )?)),
-            "hover" => Ok(Special::Hover(HoverEvent::try_from_descriptors(
-                event, args,
-            )?)),
-            _ => Err(format!("unknown special `{tag}`").into()),
-        }
-    }
-}
-
-impl ClickEvent {
-    fn try_from_descriptors(
-        ident: &str,
-        mut args: Vec<String>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let value = args.pop().ok_or("click event requires one argument")?;
-
-        match ClickEventDiscriminants::from_str(ident)? {
-            ClickEventDiscriminants::OpenUrl => Ok(Self::OpenUrl(value)),
-            ClickEventDiscriminants::RunCommand => Ok(Self::RunCommand(value)),
-            ClickEventDiscriminants::SuggestCommand => Ok(Self::SuggestCommand(value)),
-            ClickEventDiscriminants::CopyToClipboard => Ok(Self::CopyToClipboard(value)),
-            ClickEventDiscriminants::__Empty => {
-                Err(format!("invalid click event `{ident}`").into())
-            }
-        }
-    }
-}
-
-impl HoverEvent {
-    fn try_from_descriptors(
-        ident: &str,
-        args: Vec<String>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        match HoverEventDiscriminants::from_str(ident)? {
-            HoverEventDiscriminants::ShowText => Ok(Self::ShowText(
-                args.into_iter().next().ok_or("missing text")?,
-            )),
-            HoverEventDiscriminants::ShowItem => Ok(Self::ShowItem(
-                args.into_iter().next().ok_or("missing item")?,
-            )),
-            HoverEventDiscriminants::ShowEntity => {
-                let mut args = args.into_iter();
-
-                Ok(Self::ShowEntity {
-                    entity_type: args.next().ok_or("missing entity type")?,
-                    id: args.next().ok_or("missing id")?,
-                    name: args.next(),
-                })
-            }
-            HoverEventDiscriminants::__Empty => {
-                Err(format!("invalid hover event `{ident}`").into())
-            }
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -397,7 +248,7 @@ pub fn minimessage(input: TokenStream) -> TokenStream {
 
     quote! {
         {
-            use ::pumpkin_plugin_api::{common::NamedColor, world::TextComponent};
+            use ::pumpkin_plugin_api::{common::NamedColor, text::TextComponent};
 
             let #root = TextComponent::text("");
             #child_code
