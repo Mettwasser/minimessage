@@ -1,8 +1,8 @@
+use std::{borrow::Cow, collections::HashMap, num::ParseIntError, str::FromStr};
+
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use serde::Serialize;
-use std::{borrow::Cow, collections::HashMap, num::ParseIntError, str::FromStr};
-
 use strum::{EnumDiscriminants, EnumString};
 use syn::Ident;
 
@@ -32,10 +32,10 @@ impl<'a> ClickEvent {
             ClickEventDiscriminants::SuggestCommand => Ok(Self::SuggestCommand(value.to_string())),
             ClickEventDiscriminants::CopyToClipboard => {
                 Ok(Self::CopyToClipboard(value.to_string()))
-            }
+            },
             ClickEventDiscriminants::__Empty => {
                 Err(format!("invalid click event `{ident}`").into())
-            }
+            },
         }
     }
 }
@@ -72,7 +72,7 @@ impl<'a> HoverEvent {
                     let item = Item::new(format!("minecraft:{id}"), count)?;
 
                     Ok(Self::ShowItem(fastsnbt::to_string(&item)?))
-                }
+                },
                 [id, count, modifier_tag, modifier_value] => match &**modifier_tag {
                     "enchantments" => {
                         let levels: HashMap<String, i32> = fastsnbt::from_str(modifier_value)?;
@@ -93,7 +93,7 @@ impl<'a> HoverEvent {
                         )?;
 
                         Ok(Self::ShowItem(fastsnbt::to_string(&item)?))
-                    }
+                    },
                     _ => Err("modifier not found".into()),
                 },
 
@@ -107,10 +107,10 @@ impl<'a> HoverEvent {
                     id: args.next().ok_or("missing id")?.into(),
                     name: args.next().map(String::from),
                 })
-            }
+            },
             HoverEventDiscriminants::__Empty => {
                 Err(format!("invalid hover event `{ident}`").into())
-            }
+            },
         }
     }
 }
@@ -130,10 +130,10 @@ impl Special {
                 ClickEvent::RunCommand(command) => quote! { #var.click_run_command(#command); },
                 ClickEvent::SuggestCommand(command) => {
                     quote! { #var.click_suggest_command(#command); }
-                }
+                },
                 ClickEvent::CopyToClipboard(text) => {
                     quote! { #var.click_copy_to_clipboard(#text); }
-                }
+                },
                 ClickEvent::__Empty => quote! { compile_error!("No"); },
             },
             Self::Hover(hover) => match hover {
@@ -147,7 +147,7 @@ impl Special {
                         .unwrap_or_else(|| quote!(None));
 
                     quote! { #var.hover_show_entity(#entity_type, #id, #name); }
-                }
+                },
                 HoverEvent::ShowItem(item) => quote! { #var.hover_show_item(#item); },
                 HoverEvent::ShowText(text) => quote! { {
                     let temp_text = TextComponent::text(#text);

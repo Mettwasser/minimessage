@@ -1,0 +1,15 @@
+# Stable
+edition = "2024"
+match_block_trailing_comma = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+
+# Nightly
+comment_width = 100
+format_code_in_doc_comments = true
+imports_granularity = "Crate"
+imports_layout = "HorizontalVertical"
+wrap_comments = true
+group_imports = "StdExternalCrate"
+format_macro_bodies = true
+format_macro_matchers = true

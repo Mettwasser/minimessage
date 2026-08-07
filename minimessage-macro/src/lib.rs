@@ -1,18 +1,20 @@
 mod special;
 
 use heck::ToPascalCase;
+use minimessage_impl::{
+    parser::{Expression, Node, Parser},
+    tokenizer::Tokenizer,
+};
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{
-    Expr, Ident, LitStr, Token,
+    Expr,
+    Ident,
+    LitStr,
+    Token,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
-};
-
-use minimessage_impl::{
-    parser::{Expression, Node, Parser},
-    tokenizer::Tokenizer,
 };
 
 use crate::special::Special;
@@ -153,7 +155,7 @@ fn generate_nodes(
                     let #var = TextComponent::text(#text);
                     #parent.add_child(#var);
                 });
-            }
+            },
             Node::Expression(Expression::Named(name)) => {
                 let (value_expr, fmt_lit) = resolve_named(name, args, positional_idx);
                 let idx = *var_counter;
@@ -165,7 +167,7 @@ fn generate_nodes(
                     let #var = TextComponent::text(&#text);
                     #parent.add_child(#var);
                 });
-            }
+            },
             Node::Expression(Expression::Unnamed) => {
                 let expr = args
                     .get(*positional_idx)
@@ -184,7 +186,7 @@ fn generate_nodes(
                     let #var = TextComponent::text(&#text);
                     #parent.add_child(#var);
                 });
-            }
+            },
             Node::Element {
                 tag,
                 children,
@@ -205,7 +207,7 @@ fn generate_nodes(
                         Err(e) => {
                             let msg = e.to_string();
                             quote! { compile_error!(#msg); }
-                        }
+                        },
                     }
                 } else {
                     let color = tag_to_color(tag);
@@ -220,7 +222,7 @@ fn generate_nodes(
                     #child_code
                     #parent.add_child(#var);
                 });
-            }
+            },
         }
     }
     code

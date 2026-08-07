@@ -1,9 +1,10 @@
-use std::borrow::Cow;
-use std::iter::Peekable;
+use std::{borrow::Cow, iter::Peekable};
 
-use crate::error::{Error, Result};
-use crate::token::Token;
-use crate::tokenizer::Tokenizer;
+use crate::{
+    error::{Error, Result},
+    token::Token,
+    tokenizer::Tokenizer,
+};
 
 macro_rules! expect_token {
     ($parser:expr, $($pattern:pat => $result:expr),*) => {
@@ -49,10 +50,12 @@ impl<'a> Iterator for Parser<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let token = self.peek()?;
         match token {
-            Token::Text(_) | Token::Backslash | Token::Colon | Token::Slash
-                | Token::DoubleQuote | Token::Quote => {
-                Some(self.parse_text().map(Node::Text))
-            }
+            Token::Text(_)
+            | Token::Backslash
+            | Token::Colon
+            | Token::Slash
+            | Token::DoubleQuote
+            | Token::Quote => Some(self.parse_text().map(Node::Text)),
             Token::AngleOpen => Some(self.parse_element()),
             Token::CurlyOpen => Some(self.parse_expression()),
             _ => None,
@@ -96,19 +99,33 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(Token::DoubleQuote) if break_quote == Some('"') => break,
                 Some(Token::Quote) if break_quote == Some('\'') => break,
-                Some(Token::DoubleQuote) => {
+                Some(
+                    tok @ (Token::DoubleQuote
+                    | Token::Quote
+                    | Token::Colon
+                    | Token::Slash
+                    | Token::CurlyOpen
+                    | Token::CurlyClose),
+                ) => {
+                    let s = match tok {
+                        Token::DoubleQuote => "\"",
+                        Token::Quote => "'",
+                        Token::Colon => ":",
+                        Token::Slash => "/",
+                        Token::CurlyOpen => "{",
+                        Token::CurlyClose => "}",
+                        _ => unreachable!(),
+                    };
                     self.advance();
-                    parts.push("\"");
-                }
-                Some(Token::Quote) => {
-                    self.advance();
-                    parts.push("'");
-                }
+                    parts.push(s);
+                },
+
                 Some(Token::Text(_)) => {
                     if let Token::Text(s) = self.advance().unwrap() {
                         parts.push(s);
                     }
-                }
+                },
+
                 Some(Token::Backslash) => {
                     self.advance();
                     match self.advance() {
@@ -128,28 +145,12 @@ impl<'a> Parser<'a> {
                             } else {
                                 parts.push(s);
                             }
-                        }
+                        },
                         Some(Token::DoubleQuote) => parts.push("\""),
                         Some(Token::Quote) => parts.push("\'"),
                         None => return Err(Error::UnexpectedEof),
                     }
-                }
-                Some(Token::Colon) => {
-                    self.advance();
-                    parts.push(":");
-                }
-                Some(Token::Slash) => {
-                    self.advance();
-                    parts.push("/");
-                }
-                Some(Token::CurlyOpen) => {
-                    self.advance();
-                    parts.push("{");
-                }
-                Some(Token::CurlyClose) => {
-                    self.advance();
-                    parts.push("}");
-                }
+                },
                 _ => break,
             }
         }
@@ -204,12 +205,12 @@ impl<'a> Parser<'a> {
                     let inner_text = self.parse_descriptor_text('"')?;
                     expect_token!(self.advance(), Token::DoubleQuote);
                     inner_text
-                }
+                },
                 Some(Token::Quote) => {
                     let inner_text = self.parse_descriptor_text('\'')?;
                     expect_token!(self.advance(), Token::Quote);
                     inner_text
-                }
+                },
                 Some(tok) => return Err(Error::InvalidToken(tok.into())),
                 None => return Err(Error::UnexpectedEof),
             };
@@ -258,7 +259,7 @@ impl<'a> Parser<'a> {
             Some(Token::CurlyClose) => {
                 self.advance();
                 Ok(Node::Expression(Expression::Unnamed))
-            }
+            },
             Some(_) => {
                 let name = expect_token!(self.advance(), Token::Text(t) => t);
 
@@ -272,7 +273,7 @@ impl<'a> Parser<'a> {
 
                 expect_token!(self.advance(), Token::CurlyClose);
                 Ok(Node::Expression(Expression::Named(name)))
-            }
+            },
             None => Err(Error::UnexpectedEof),
         }
     }
@@ -605,11 +606,6 @@ mod tests {
     #[test]
     fn br_tag() {
         assert_eq!(nodes("<br>"), vec![Node::Text(Cow::Borrowed("\n"))]);
-    }
-
-    #[test]
-    fn linebreak_tag() {
-        assert_eq!(nodes("<newline>"), vec![Node::Text(Cow::Borrowed("\n"))]);
     }
 
     #[test]

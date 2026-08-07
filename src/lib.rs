@@ -4,5 +4,4 @@ pub use minimessage_impl::{
     token::Token,
     tokenizer::Tokenizer,
 };
-
 pub use minimessage_macro::minimessage;
