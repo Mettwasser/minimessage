@@ -40,6 +40,15 @@ impl CommandHandler for TestCommandHandler {
 
 You can also embed files. This will insert the file contents at compile time and you get the same, compile time checked benefits!
 
+`minimessage_demo.xml`
+
+```xml
+<blue>Hello there, <red><bold>{}</bold></red>!</blue> <yellow>Here's your shiny bold number: <bold>{number:.2}</bold></yellow>
+<click:open_url:"https://pumpkinmc.org/">Visit <red>pumpkin</red>!</click>
+```
+
+Command Handler:
+
 ```rs
 struct TestCommandHandler;
 
