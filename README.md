@@ -38,7 +38,8 @@ impl CommandHandler for TestCommandHandler {
 
 ## File embedding
 
-You can also embed files. This will insert the file contents at compile time and you get the same, compile time checked benefits!
+File embedding is another feature. This will insert the file contents at compile time and you get the same,
+compile time checked benefits as if the file contents were in-place!
 
 `minimessage_demo.xml`
 
@@ -60,7 +61,7 @@ impl CommandHandler for TestCommandHandler {
         _server: Server,
         _args: ConsumedArgs,
     ) -> pumpkin_plugin_api::Result<i32, CommandError> {
-        let number = 7;
+        let number = 69;
         sender.send_message(minimessage!(file:"minimessage_demo.xml", sender.get_name()));
 
         Ok(0)
@@ -72,40 +73,29 @@ impl CommandHandler for TestCommandHandler {
 
 ## Dynamic Rendering
 
-Currently this isn't supported out of the box.
-However, this library additionally provides a tokenizer and parser so you can DIY.
-
-An example of how to use the tokenizer & parser:
+You can also render components at runtime:
 
 ```rs
-fn get_nodes(input: &str) -> Vec<Node<'_>> {
-    Parser::new(Tokenizer::new(input))
-        .collect::<Result<Vec<_>>>()
-        .unwrap()
+struct TestCommandHandler;
+
+impl CommandHandler for TestCommandHandler {
+    fn handle(
+        &self,
+        sender: CommandSender,
+        _server: Server,
+        _args: ConsumedArgs,
+    ) -> pumpkin_plugin_api::Result<i32, CommandError> {
+        let text = "<blue>Hello! My name is <white><bold><italic>{my_name}!";
+        let args = minimessage::ArgumentCollection::new().named("my_name", sender.get_name());
+
+        let component = minimessage::deserialize_with_args(text, args)
+            .map_err(|err| CommandError::CommandFailed(TextComponent::text(&err.to_string())))?;
+
+        sender.send_message(component);
+
+        Ok(0)
+    }
 }
-
-let nodes = get_nodes(
-    r"Hello <blue>{name}, welcome to <orange>Rust</orange>!</blue> with an escaped \{",
-);
-
-let expected = vec![
-    Node::Text(Cow::Borrowed("Hello ")),
-    Node::Element {
-        tag: "blue",
-        tag_descriptors: vec![],
-        children: vec![
-            Node::Expression(Expression::Named(Cow::Borrowed("name"))),
-            Node::Text(Cow::Borrowed(", welcome to ")),
-            Node::Element {
-                tag: "orange",
-                tag_descriptors: vec![],
-                children: vec![Node::Text(Cow::Borrowed("Rust"))],
-            },
-            Node::Text(Cow::Borrowed("!")),
-        ],
-    },
-    Node::Text(Cow::Owned(" with an escaped {".to_string())),
-];
-
-assert_eq!(nodes, expected);
 ```
+
+![](readme_data/image3.png)

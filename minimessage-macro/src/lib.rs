@@ -1,10 +1,9 @@
-mod special;
-
 use std::{env, fs};
 
 use heck::ToPascalCase;
 use minimessage_impl::{
     parser::{Expression, Node, Parser},
+    style::{self, ClickEvent, Decoration, HoverEvent, Special},
     tokenizer::Tokenizer,
 };
 use proc_macro::TokenStream;
@@ -18,8 +17,6 @@ use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
 };
-
-use crate::special::Special;
 
 mod keywords {
     syn::custom_keyword!(file);
@@ -82,32 +79,68 @@ impl Parse for MacroInput {
     }
 }
 
-fn tag_to_color(tag: &str) -> TokenStream2 {
+fn tag_to_color_code(tag: &str) -> TokenStream2 {
     let pascal_case_tag = tag.to_pascal_case();
     let ident = format_ident!("{pascal_case_tag}");
     quote! { NamedColor::#ident }
 }
 
-#[derive(Clone)]
-enum Decoration {
-    Bold,
+fn decoration_to_fn_call_code(decoration: Decoration, var: &Ident) -> TokenStream2 {
+    let fn_name = match decoration {
+        Decoration::Bold => quote! { bold(true) },
+        Decoration::Italic => quote! { italic(true) },
+        Decoration::Underlined => quote! { underlined(true) },
+        Decoration::Strikethrough => quote! { strikethrough(true) },
+        Decoration::Obfuscated => quote! { obfuscated(true) },
+    };
+    quote! { #var.#fn_name; }
 }
 
-impl Decoration {
-    fn to_fn_call_code(self, var: &Ident) -> TokenStream2 {
-        let function_to_append = match self {
-            Decoration::Bold => quote! { bold(true) },
-        };
+fn special_to_fn_call_code(special: Special, var: Ident) -> TokenStream2 {
+    match special {
+        Special::Click(click) => match click {
+            ClickEvent::OpenUrl(url) => quote! { #var.click_open_url(#url); },
+            ClickEvent::RunCommand(command) => quote! { #var.click_run_command(#command); },
+            ClickEvent::SuggestCommand(command) => {
+                quote! { #var.click_suggest_command(#command); }
+            },
+            ClickEvent::CopyToClipboard(text) => {
+                quote! { #var.click_copy_to_clipboard(#text); }
+            },
+            ClickEvent::__Empty => quote! { compile_error!("No"); },
+        },
+        Special::Hover(hover) => match hover {
+            HoverEvent::ShowEntity {
+                entity_type,
+                id,
+                name,
+            } => {
+                let name = name
+                    .map(|name| quote!(Some(#name)))
+                    .unwrap_or_else(|| quote!(None));
 
-        quote! { #var.#function_to_append; }
+                quote! { #var.hover_show_entity(#entity_type, #id, #name); }
+            },
+            HoverEvent::ShowItem(item) => quote! { #var.hover_show_item(#item); },
+            HoverEvent::ShowText(text) => {
+                let nodes = Parser::new(Tokenizer::new(&text))
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .unwrap();
+                let root = format_ident!("__hover_text");
+                let mut var_counter = 0;
+                let mut positional_idx = 0;
+                let child_code =
+                    generate_nodes(&nodes, &[], &mut positional_idx, &mut var_counter, &root);
+
+                quote! { {
+                    let #root = TextComponent::text("");
+                    #child_code
+                    #var.hover_show_text(#root);
+                } }
+            },
+            HoverEvent::__Empty => quote! { compile_error!("No"); },
+        },
     }
-}
-
-fn tag_to_decoration(tag: &str) -> Option<Decoration> {
-    Some(match tag {
-        "bold" => Decoration::Bold,
-        _ => return None,
-    })
 }
 
 fn resolve_named(
@@ -218,18 +251,18 @@ fn generate_nodes(
 
                 let child_code = generate_nodes(children, args, positional_idx, var_counter, &var);
 
-                let code_to_insert = if let Some(decoration) = tag_to_decoration(tag) {
-                    decoration.to_fn_call_code(&var)
+                let code_to_insert = if let Some(decoration) = style::tag_to_decoration(tag) {
+                    decoration_to_fn_call_code(decoration, &var)
                 } else if !tag_descriptors.is_empty() {
                     match Special::from_descriptor(tag, tag_descriptors.clone()) {
-                        Ok(special) => special.to_fn_call_code(var.clone()),
+                        Ok(special) => special_to_fn_call_code(special, var.clone()),
                         Err(e) => {
                             let msg = e.to_string();
                             quote! { compile_error!(#msg); }
                         },
                     }
                 } else {
-                    let color = tag_to_color(tag);
+                    let color = tag_to_color_code(tag);
                     quote! {
                         #var.color_named(#color);
                     }
@@ -259,7 +292,7 @@ pub fn minimessage(input: TokenStream) -> TokenStream {
     }
 
     let nodes = Parser::new(Tokenizer::new(&value))
-        .collect::<Result<Vec<_>, _>>()
+        .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
 
     let root = format_ident!("__root");

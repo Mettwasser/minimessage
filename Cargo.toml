@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 minimessage-impl = { path = "./minimessage-impl" }
 minimessage-macro = { path = "./minimessage-macro" }
+minimessage-runtime = { path = "./minimessage-runtime" }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
@@ -17,5 +18,7 @@ harness = false
 [workspace]
 members = [
     "minimessage-macro",
-    "macro_test", "minimessage-impl",
+    "macro_test",
+    "minimessage-impl",
+    "minimessage-runtime",
 ]

@@ -272,9 +272,9 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "fastsnbt"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b953d87bb66e0741a3353073f1b40a32a69923c75a1015a164e13a32e47d8a15"
+checksum = "7c1816e243086eddd91d429f9d1794a7a0779f4f29fa6cfd519e7213846c8000"
 dependencies = [
  "byteorder",
  "itoa",
@@ -480,12 +480,15 @@ dependencies = [
  "criterion",
  "minimessage-impl",
  "minimessage-macro",
+ "minimessage-runtime",
 ]
 
 [[package]]
 name = "minimessage-impl"
 version = "0.1.0"
 dependencies = [
+ "fastsnbt",
+ "serde",
  "strum",
  "thiserror",
 ]
@@ -494,14 +497,20 @@ dependencies = [
 name = "minimessage-macro"
 version = "0.1.0"
 dependencies = [
- "fastsnbt",
  "heck",
  "minimessage-impl",
  "proc-macro2",
  "quote",
- "serde",
- "strum",
  "syn 3.0.3",
+]
+
+[[package]]
+name = "minimessage-runtime"
+version = "0.1.0"
+dependencies = [
+ "minimessage-impl",
+ "pumpkin-plugin-api",
+ "thiserror",
 ]
 
 [[package]]
@@ -860,18 +869,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.19"
+version = "2.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09a43598840e33d5b0331f38c5e30d13bb11c11210a4b58f0d9b18a5a5eefcd9"
+checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.19"
+version = "2.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43cbfe0cf76104d42a574802844187e84a305e531ed54455f11fbde0f10541cd"
+checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
 dependencies = [
  "proc-macro2",
  "quote",
