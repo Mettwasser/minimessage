@@ -3,7 +3,7 @@ use std::{env, fs};
 use heck::ToPascalCase;
 use minimessage_impl::{
     parser::{Expression, Node, Parser},
-    style::{self, ClickEvent, Decoration, HoverEvent, Special},
+    style::{self, ClickEvent, Color, Decoration, HoverEvent, Special},
     tokenizer::Tokenizer,
 };
 use proc_macro::TokenStream;
@@ -139,6 +139,11 @@ fn special_to_fn_call_code(special: Special, var: Ident) -> TokenStream2 {
                 } }
             },
             HoverEvent::__Empty => quote! { compile_error!("No"); },
+        },
+        Special::Color(Color(r, g, b)) => {
+            quote! {
+                #var.color_rgb(RgbColor { r: #r, g: #g, b: #b });
+            }
         },
     }
 }
@@ -308,7 +313,7 @@ pub fn minimessage(input: TokenStream) -> TokenStream {
 
     quote! {
         {
-            use ::pumpkin_plugin_api::{common::NamedColor, text::TextComponent};
+            use ::pumpkin_plugin_api::{common::NamedColor, text::{TextComponent, RgbColor}};
 
             let #root = TextComponent::text("");
             #child_code

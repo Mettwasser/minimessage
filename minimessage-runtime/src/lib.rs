@@ -3,10 +3,13 @@ use std::collections::HashMap;
 
 use minimessage_impl::{
     parser::{Expression, Node, Parser},
-    style::{self, ClickEvent, Decoration, HoverEvent, NamedColor, Special, SpecialError},
+    style::{self, ClickEvent, Color, Decoration, HoverEvent, NamedColor, Special, SpecialError},
     tokenizer::Tokenizer,
 };
-use pumpkin_plugin_api::{common::NamedColor as PumpkingNamedColor, text::TextComponent};
+use pumpkin_plugin_api::{
+    common::{NamedColor as PumpkingNamedColor, RgbColor},
+    text::TextComponent,
+};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -197,6 +200,9 @@ fn apply_special(
                 }
             },
             HoverEvent::__Empty => {},
+        },
+        Special::Color(Color(r, g, b)) => {
+            component.color_rgb(RgbColor { r, g, b });
         },
     }
     Ok(())

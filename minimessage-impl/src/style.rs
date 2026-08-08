@@ -78,11 +78,12 @@ pub enum ClickEvent {
 }
 
 impl ClickEvent {
-    pub fn try_from_descriptors(
-        ident: Cow<'_, str>,
-        mut args: Vec<Cow<'_, str>>,
-    ) -> Result<Self, SpecialError> {
-        match ClickEventDiscriminants::from_str(&ident)? {
+    pub fn try_from_descriptors(args: Vec<Cow<'_, str>>) -> Result<Self, SpecialError> {
+        let mut iter = args.into_iter();
+        let event = iter.next().ok_or(SpecialError::MissingSpecialType)?;
+        let mut args = iter.collect::<Vec<_>>();
+
+        match ClickEventDiscriminants::from_str(&event)? {
             ClickEventDiscriminants::OpenUrl => Ok(Self::OpenUrl(
                 args.pop()
                     .ok_or(SpecialError::MissingArgument("url"))?
@@ -124,11 +125,12 @@ pub enum HoverEvent {
 }
 
 impl HoverEvent {
-    pub fn try_from_descriptors(
-        ident: Cow<'_, str>,
-        args: Vec<Cow<'_, str>>,
-    ) -> Result<Self, SpecialError> {
-        match HoverEventDiscriminants::from_str(&ident)? {
+    pub fn try_from_descriptors(descriptors: Vec<Cow<'_, str>>) -> Result<Self, SpecialError> {
+        let mut iter = descriptors.into_iter();
+        let event = iter.next().ok_or(SpecialError::MissingSpecialType)?;
+        let args = iter.collect::<Vec<_>>();
+
+        match HoverEventDiscriminants::from_str(&event)? {
             HoverEventDiscriminants::ShowText => Ok(Self::ShowText(
                 args.into_iter()
                     .next()
@@ -183,6 +185,47 @@ impl HoverEvent {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Color(pub u8, pub u8, pub u8);
+
+impl Color {
+    pub fn try_from_descriptors(descriptors: Vec<Cow<'_, str>>) -> Result<Self, SpecialError> {
+        let mut iter = descriptors.into_iter();
+        let color_string = iter
+            .next()
+            .ok_or(SpecialError::MissingArgument("color_hex"))?;
+
+        Ok(Self::from_str(&color_string)?)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub enum ParseColorError {
+    #[error("Invalid hex string length")]
+    InvalidLength,
+
+    InvalidHex(ParseIntError),
+}
+
+impl FromStr for Color {
+    type Err = ParseColorError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let hex = s.strip_prefix('#').unwrap_or(s);
+
+        if hex.len() != 6 {
+            return Err(ParseColorError::InvalidLength);
+        }
+
+        let r = u8::from_str_radix(&hex[0..2], 16).map_err(ParseColorError::InvalidHex)?;
+        let g = u8::from_str_radix(&hex[2..4], 16).map_err(ParseColorError::InvalidHex)?;
+        let b = u8::from_str_radix(&hex[4..6], 16).map_err(ParseColorError::InvalidHex)?;
+
+        Ok(Color(r, g, b))
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub enum SpecialError {
@@ -193,8 +236,8 @@ pub enum SpecialError {
     UnknownTag(String),
 
     ParseError(#[from] strum::ParseError),
-
-    ParseIntError(#[from] ParseIntError),
+    ParseInt(#[from] ParseIntError),
+    ParseColor(#[from] ParseColorError),
 
     Snbt(#[from] fastsnbt::error::Error),
 
@@ -213,9 +256,11 @@ pub enum SpecialError {
 
 #[derive(Clone, Debug, EnumDiscriminants)]
 #[strum_discriminants(derive(EnumString))]
+#[strum_discriminants(strum(serialize_all = "snake_case"))]
 pub enum Special {
     Click(ClickEvent),
     Hover(HoverEvent),
+    Color(Color),
 }
 
 impl Special {
@@ -223,17 +268,16 @@ impl Special {
         tag: &str,
         descriptors: Vec<Cow<'_, str>>,
     ) -> Result<Self, SpecialError> {
-        let mut iter = descriptors.into_iter();
-        let event = iter.next().ok_or(SpecialError::MissingSpecialType)?;
-        let args = iter.collect::<Vec<_>>();
-        match tag {
-            "click" => Ok(Special::Click(ClickEvent::try_from_descriptors(
-                event, args,
+        match SpecialDiscriminants::from_str(&tag)? {
+            SpecialDiscriminants::Click => Ok(Special::Click(ClickEvent::try_from_descriptors(
+                descriptors,
             )?)),
-            "hover" => Ok(Special::Hover(HoverEvent::try_from_descriptors(
-                event, args,
+            SpecialDiscriminants::Hover => Ok(Special::Hover(HoverEvent::try_from_descriptors(
+                descriptors,
             )?)),
-            _ => Err(SpecialError::UnknownTag(tag.to_string())),
+            SpecialDiscriminants::Color => {
+                Ok(Special::Color(Color::try_from_descriptors(descriptors)?))
+            },
         }
     }
 }
